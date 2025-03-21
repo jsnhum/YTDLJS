@@ -48,14 +48,15 @@ def update_ytdlp():
 
 # Funktion för att ladda ner YouTube-video
 def download_video(video_id, output_path):
+    """Download a YouTube video and return the file path."""
     try:
         ydl_opts = {
             'format': 'mp4', 
             'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
             'nocheckcertificate': True,
-            'ignoreerrors': False,  # Sätt till True om du vill ignorera fel och fortsätta
-            'no_warnings': False,   # Användbara varningar för felsökning
-            'quiet': False,         # Visa utförliga loggmeddelanden
+            'ignoreerrors': False,
+            'no_warnings': False,
+            'quiet': False,
             'noplaylist': True,
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'http_headers': {'Referer': 'https://www.youtube.com/'}
@@ -66,30 +67,49 @@ def download_video(video_id, output_path):
             info = ydl.extract_info(video_url, download=True)
             filename = ydl.prepare_filename(info)
             
-        st.success(f"Video nedladdad: {os.path.basename(filename)}")
-        return filename
+            # Make sure the file exists
+            if os.path.exists(filename):
+                st.success(f"Video nedladdad: {os.path.basename(filename)}")
+                return filename
+            else:
+                # Sometimes the extension might be different, try to find the file
+                base_filename = os.path.splitext(filename)[0]
+                for ext in ['.mp4', '.webm', '.mkv']:
+                    alt_filename = base_filename + ext
+                    if os.path.exists(alt_filename):
+                        st.success(f"Video nedladdad: {os.path.basename(alt_filename)}")
+                        return alt_filename
+                
+                st.warning(f"Filen verkar ha laddats ner men kan inte hittas: {os.path.basename(filename)}")
+                return None
     except Exception as e:
         st.error(f"Det gick inte att ladda ner videon {video_id}: {str(e)}")
         return None
 
 # Funktion för att skapa en nedladdningslänk för en fil
 def create_download_link(file_path):
-    if file_path and os.path.exists(file_path):
-        try:
-            with open(file_path, "rb") as file:
-                file_contents = file.read()
-            file_name = os.path.basename(file_path)
-            b64 = base64.b64encode(file_contents).decode()
-            href = f'<a href="data:application/octet-stream;base64,{b64}" download="{file_name}">Klicka här för att ladda ner {file_name}</a>'
-            return href
-        except Exception as e:
-            st.error(f"Fel vid skapande av nedladdningslänk: {str(e)}")
-            # Alternativ lösning för stora filer
-            file_size = os.path.getsize(file_path) / (1024 * 1024)  # Storlek i MB
-            if file_size > 50:  # Om filen är större än 50 MB
-                return f"Filen {os.path.basename(file_path)} är {file_size:.1f} MB och för stor för direktnedladdning. Använd lokal version av appen."
+    """Create a download link for a file."""
+    try:
+        if not file_path or not os.path.exists(file_path):
+            st.warning(f"Fil hittades inte: {file_path}")
             return None
-    return None
+            
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        if file_size_mb > 50:
+            return f"<p>⚠️ Filen <b>{os.path.basename(file_path)}</b> är {file_size_mb:.1f} MB och för stor för direktnedladdning via webbläsaren. Kör appen lokalt för att ladda ner stora filer.</p>"
+            
+        # Read file in smaller chunks to avoid memory issues
+        with open(file_path, "rb") as file:
+            file_content = file.read()
+            
+        file_name = os.path.basename(file_path)
+        b64 = base64.b64encode(file_content).decode()
+        mime_type = "video/mp4" if file_path.endswith(".mp4") else "audio/mpeg" if file_path.endswith(".mp3") else "application/octet-stream"
+        href = f'<a href="data:{mime_type};base64,{b64}" download="{file_name}" style="display: inline-block; padding: 0.5rem 1rem; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; margin: 0.5rem 0;">⬇️ Ladda ner {file_name} ({file_size_mb:.1f} MB)</a>'
+        return href
+    except Exception as e:
+        st.error(f"Fel vid skapande av nedladdningslänk för {os.path.basename(file_path)}: {str(e)}")
+        return None
 
 # Funktion för att ladda ner ljud med angiven FFmpeg-sökväg
 def download_audio_with_ffmpeg(video_id, output_path, output_format='mp3', ffmpeg_path=None):
