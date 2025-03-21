@@ -1,5 +1,9 @@
 import streamlit as st
 import os
+import time
+import shutil
+import sys
+import subprocess
 import base64
 from yt_dlp import YoutubeDL
 
@@ -40,12 +44,46 @@ def create_download_link(file_path):
 def display_youtube_video(video_id):
     st.video(f"https://www.youtube.com/watch?v={video_id}")
 
+# Funktion för att lista filer i en mapp
+def list_files_in_directory(directory_path):
+    files = []
+    for file_name in os.listdir(directory_path):
+        file_path = os.path.join(directory_path, file_name)
+        if os.path.isfile(file_path):
+            files.append(file_name)
+    return files[0] if files else None
+
+# Funktion för att byta namn på en fil
+def rename_file(old_name, new_name):
+    os.rename(old_name, new_name)
+
+# Funktion för att uppdatera yt-dlp
+def update_ytdlp():
+    try:
+        st.info("Uppdaterar yt-dlp...")
+        result = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"], 
+                               capture_output=True, text=True)
+        if result.returncode == 0:
+            st.success("yt-dlp har uppdaterats till senaste versionen")
+        else:
+            st.error(f"Kunde inte uppdatera yt-dlp: {result.stderr}")
+    except Exception as e:
+        st.error(f"Ett fel uppstod vid uppdatering av yt-dlp: {str(e)}")
+
 # Funktion för att ladda ner YouTube-video
 def download_video(video_id, output_path):
     try:
+        # Använd exakt samma formatval som i ursprungliga koden för QuickTime-kompatibilitet
         ydl_opts = {
             'format': 'mp4', 
-            'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s')
+            'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'no_warnings': False,
+            'quiet': False,
+            'noplaylist': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'http_headers': {'Referer': 'https://www.youtube.com/'}
         }
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         
@@ -70,13 +108,16 @@ def download_audio(video_id, output_path, output_format='mp3'):
                 'preferredquality': '192',
             }],
             'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
+            'nocheckcertificate': True,
+            'noplaylist': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'http_headers': {'Referer': 'https://www.youtube.com/'}
         }
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
             title = info.get('title', video_id)
-            # Skapa fullständig sökväg till den nedladdade ljudfilen
             file_path = os.path.join(output_path, f"{title}.{output_format}")
             
         st.success(f"Ljud nedladdat: {title}.{output_format}")
@@ -102,8 +143,27 @@ with tab1:
 # Flik 2: Ladda ner en video eller ljud
 with tab2:
     st.header("Ladda ner en video eller ljud")
+    
+    # Knapp för att uppdatera yt-dlp
+    if st.button("Uppdatera yt-dlp till senaste versionen", key="update_yt_dlp"):
+        update_ytdlp()
+    
     video_id_input = st.text_input("Ange YouTube video-ID:", key="download_video_id")
     output_dir = st.text_input("Ange utdatakatalog (standardvärde: ./downloads):", value="./downloads")
+    
+    # Avancerade inställningar expander
+    with st.expander("Avancerade inställningar"):
+        st.info("Om du har problem med nedladdning, prova följande alternativ:")
+        use_proxy = st.checkbox("Använd proxy (kan hjälpa vid geografiska begränsningar)")
+        if use_proxy:
+            proxy_url = st.text_input("Proxy URL (format: http://user:pass@host:port)")
+        
+        cookies_file = st.file_uploader("Ladda upp en cookies.txt-fil (kan hjälpa vid inloggningsbegränsade videor)", type="txt")
+        if cookies_file:
+            cookies_path = os.path.join(os.getcwd(), "cookies.txt")
+            with open(cookies_path, "wb") as f:
+                f.write(cookies_file.getbuffer())
+            st.success(f"Cookies-fil sparad: {cookies_path}")
     
     download_type = st.radio("Välj vad du vill ladda ner:", ("Video", "Endast ljud"))
     
@@ -147,20 +207,25 @@ st.info("""
   ID:t är vanligtvis den del som kommer efter `v=` (t.ex. `https://www.youtube.com/watch?v=DETTA_ÄR_ID`).
 - Nedladdning av upphovsrättsskyddat material utan tillstånd kan vara olagligt i vissa jurisdiktioner.
 - För att ladda ner ljud behöver du ha FFmpeg installerat på din dator.
-- Om du kör appen i molnet måste du använda nedladdningslänken för att få filen till din dator.
-- Om du kör appen lokalt sparas filerna i den angivna katalogen.
 - Denna applikation är endast för utbildningssyfte.
 """)
 
-st.markdown("### Tips")
-st.success("""
-**Om du kör appen i molnet (t.ex. Streamlit Cloud):**
-- Filerna laddas först ner till servern och sedan till din dator via nedladdningslänken
-- Stora filer kan ta längre tid att ladda ner
-- Sessionen i molnet är tillfällig, så filerna sparas inte permanent
+st.markdown("### Felsökning")
+st.warning("""
+**Om du får ett 403 Forbidden-fel:**
+1. Klicka på "Uppdatera yt-dlp till senaste versionen" för att se till att du använder den senaste versionen.
+2. Vissa videor kan vara begränsade av YouTube och kanske inte går att ladda ner.
+3. Prova avancerade inställningar som proxy eller cookies om tillgängligt.
+4. Försök igen senare - ibland kan tillfälliga begränsningar förekomma.
 
-**Om du kör appen lokalt:**
-- Filerna sparas direkt i den angivna katalogen på din dator
-- Du behöver inte använda nedladdningslänken, men den finns tillgänglig
-- För att köra lokalt, använd kommandot: `streamlit run app.py`
+**Om du får fel relaterat till FFmpeg:**
+1. Du behöver installera FFmpeg för att kunna ladda ner ljud.
+2. Ladda ner FFmpeg från [ffmpeg.org](https://ffmpeg.org/download.html)
+3. När du installerat FFmpeg, ange sökvägen till ffmpeg.exe i kommandotolken.
+4. Eller installera FFmpeg med Homebrew (på Mac): `brew install ffmpeg`
+
+**Om videofiler inte kan öppnas i QuickTime:**
+1. QuickTime har begränsningar för vilka format och codecs som stöds.
+2. Om en nedladdad fil inte öppnas, prova en annan mediaspelare som VLC som stöder fler format.
+3. För MacOS användare: Om du specifikt behöver QuickTime-kompatibilitet, använd denna app.
 """)
