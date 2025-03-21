@@ -56,11 +56,11 @@ def display_youtube_video(video_id):
     st.video(f"https://www.youtube.com/watch?v={video_id}")
 
 # Funktion för att ladda ner YouTube-video
-def download_video(video_id, output_path):
+def download_video(video_id, output_path, format_option="best[ext=mp4]/best"):
     """Download a YouTube video and return the file path."""
     try:
         ydl_opts = {
-            'format': 'mp4', 
+            'format': format_option,
             'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
             'nocheckcertificate': True,
             'ignoreerrors': False,
@@ -72,24 +72,39 @@ def download_video(video_id, output_path):
         }
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         
+        # Visa tillgängliga format först
+        st.write("Hämtar information om videon...")
+        with YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            info_dict = ydl.extract_info(video_url, download=False)
+            
+            if not info_dict:
+                st.error("Kunde inte hämta information om videon")
+                return None
+                
+            video_title = info_dict.get('title', 'Video')
+            st.write(f"Laddar ner: {video_title}")
+        
+        # Genomför nedladdningen
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
             filename = ydl.prepare_filename(info)
             
-            # Make sure the file exists
-            if os.path.exists(filename):
+            # Kontrollera att filen finns och är av rimlig storlek
+            if os.path.exists(filename) and os.path.getsize(filename) > 1000:  # Över 1 KB
                 st.success(f"Video nedladdad: {os.path.basename(filename)}")
+                st.write(f"Filstorlek: {os.path.getsize(filename) / (1024*1024):.1f} MB")
                 return filename
             else:
-                # Sometimes the extension might be different, try to find the file
+                # Ibland kan filnamnstillägget ändras, sök efter filen
                 base_filename = os.path.splitext(filename)[0]
                 for ext in ['.mp4', '.webm', '.mkv']:
                     alt_filename = base_filename + ext
-                    if os.path.exists(alt_filename):
+                    if os.path.exists(alt_filename) and os.path.getsize(alt_filename) > 1000:
                         st.success(f"Video nedladdad: {os.path.basename(alt_filename)}")
+                        st.write(f"Filstorlek: {os.path.getsize(alt_filename) / (1024*1024):.1f} MB")
                         return alt_filename
                 
-                st.warning(f"Filen verkar ha laddats ner men kan inte hittas: {os.path.basename(filename)}")
+                st.warning(f"Filen verkar ha laddats ner men kan vara skadad eller ofullständig: {os.path.basename(filename)}")
                 return None
     except Exception as e:
         st.error(f"Det gick inte att ladda ner videon {video_id}: {str(e)}")
@@ -204,6 +219,12 @@ with tab2:
         ffmpeg_path = st.text_input("FFmpeg-sökväg (lämna tom för standardsökväg)", 
                                   help="Exempel: C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe på Windows eller /usr/bin/ffmpeg på Linux/Mac")
         
+        format_selection = st.radio(
+            "Format för videor:", 
+            ["Automatiskt (rekommenderas)", "Bästa kvalitet", "Balanserad (720p)", "Låg kvalitet (360p)"],
+            help="Välj videokvalitet. Automatiskt väljer bästa format som fungerar."
+        )
+        
         use_proxy = st.checkbox("Använd proxy (kan hjälpa vid geografiska begränsningar)")
         if use_proxy:
             proxy_url = st.text_input("Proxy URL (format: http://user:pass@host:port)")
@@ -233,7 +254,17 @@ with tab2:
                 
             if download_type == "Video":
                 with st.spinner("Laddar ner video..."):
-                    file_path = download_video(video_id_input, output_dir)
+                    # Anpassa formatet baserat på användarens val
+                    if format_selection == "Bästa kvalitet":
+                        format_option = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+                    elif format_selection == "Balanserad (720p)":
+                        format_option = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]"
+                    elif format_selection == "Låg kvalitet (360p)":
+                        format_option = "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best[height<=360]"
+                    else:  # Automatiskt
+                        format_option = "best[ext=mp4]/best"
+                    
+                    file_path = download_video(video_id_input, output_dir, format_option)
                     if file_path:
                         with download_link_container:
                             st.success("Nedladdning klar! Klicka på länken nedan för att spara filen:")
@@ -279,4 +310,10 @@ st.warning("""
    - Windows: Vanligtvis `C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe`
    - macOS: Oftast `/usr/local/bin/ffmpeg` om installerat via Homebrew
    - Linux: Oftast `/usr/bin/ffmpeg`
+
+**Om nedladdade videor inte fungerar:**
+1. Prova att ändra formatalternativet i avancerade inställningar.
+2. Vissa YouTube-videor är skyddade och kanske inte kan laddas ner i sin helhet.
+3. Om du får en skadad videofil, försök med alternativet "Balanserad" eller "Låg kvalitet".
+4. Vissa videor fungerar bättre som ljudfiler - om du bara är intresserad av innehållet, prova ljudalternativet.
 """)
