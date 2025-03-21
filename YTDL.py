@@ -75,12 +75,20 @@ def download_video(video_id, output_path):
 # Funktion för att skapa en nedladdningslänk för en fil
 def create_download_link(file_path):
     if file_path and os.path.exists(file_path):
-        with open(file_path, "rb") as file:
-            file_contents = file.read()
-        file_name = os.path.basename(file_path)
-        b64 = base64.b64encode(file_contents).decode()
-        href = f'<a href="data:application/octet-stream;base64,{b64}" download="{file_name}">Klicka här för att ladda ner {file_name}</a>'
-        return href
+        try:
+            with open(file_path, "rb") as file:
+                file_contents = file.read()
+            file_name = os.path.basename(file_path)
+            b64 = base64.b64encode(file_contents).decode()
+            href = f'<a href="data:application/octet-stream;base64,{b64}" download="{file_name}">Klicka här för att ladda ner {file_name}</a>'
+            return href
+        except Exception as e:
+            st.error(f"Fel vid skapande av nedladdningslänk: {str(e)}")
+            # Alternativ lösning för stora filer
+            file_size = os.path.getsize(file_path) / (1024 * 1024)  # Storlek i MB
+            if file_size > 50:  # Om filen är större än 50 MB
+                return f"Filen {os.path.basename(file_path)} är {file_size:.1f} MB och för stor för direktnedladdning. Använd lokal version av appen."
+            return None
     return None
 
 # Funktion för att ladda ner ljud med angiven FFmpeg-sökväg
